@@ -1,0 +1,12 @@
+bin/
+obj/
+dist/
+*.exe
+*.zip
+*.7z
+*.keystore
+*.jks
+*.pfx
+.vs/
+node_modules/
+*.log

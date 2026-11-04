@@ -20,6 +20,7 @@ public sealed class AppSettings
     public string VoiceBackend { get; set; } = "free";        // free | cloud
     public string VoiceLanguage { get; set; } = "ru-RU";
     public string CloudApiKey { get; set; } = "";
+    public string FreeVoiceKey { get; set; } = "";             // ключ для бесплатного режима Google (необязательно; без него — офлайн Vosk)
     public string CloudCredentialsPath { get; set; } = "";
     public bool AutoPunctuation { get; set; } = true;
     public int SilenceMs { get; set; } = 800;

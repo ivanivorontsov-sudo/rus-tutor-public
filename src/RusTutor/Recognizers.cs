@@ -21,7 +21,7 @@ interface IRecognizer : IDisposable
 /// </summary>
 sealed class GoogleFreeRecognizer : IRecognizer
 {
-    static string PublicKey => Environment.GetEnvironmentVariable("RUSTUTOR_GOOGLE_KEY") ?? ""; // ключ не хранится в коде: задайте переменную окружения RUSTUTOR_GOOGLE_KEY
+    public static string PublicKey => !string.IsNullOrWhiteSpace(App.Settings?.FreeVoiceKey) ? App.Settings.FreeVoiceKey : (Environment.GetEnvironmentVariable("RUSTUTOR_GOOGLE_KEY") ?? ""); // ключ не хранится в коде: задайте переменную окружения RUSTUTOR_GOOGLE_KEY
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     readonly string _lang; readonly VadSegmenter _vad;
     Task _chain = Task.CompletedTask; readonly object _lock = new();
@@ -46,7 +46,6 @@ sealed class GoogleFreeRecognizer : IRecognizer
 
     void OnSegment(short[] pcm)
     {
-        if (string.IsNullOrWhiteSpace(PublicKey)) { Error?.Invoke("Бесплатный голосовой режим: задайте ключ в переменной окружения RUSTUTOR_GOOGLE_KEY или выберите облачный режим в «Настройках»."); return; }
         Interim?.Invoke("⏳ распознаю…");
         lock (_lock) _chain = _chain.ContinueWith(_ => Recognize(pcm)).Unwrap(); // строго по порядку
     }
@@ -173,4 +172,72 @@ sealed class GoogleCloudRecognizer : IRecognizer
         _cts?.Cancel();
     }
     public void Dispose() { _cts?.Cancel(); }
+}
+
+
+/// <summary>Офлайн-распознавание Vosk (Apache-2.0, https://alphacephei.com/vosk/). Модель vosk-model-small-ru-0.22 (Apache-2.0) скачивается при первом использовании в %APPDATA%\RusTutor\vosk.</summary>
+sealed class VoskRecognizer : IRecognizer
+{
+    const string ModelName = "vosk-model-small-ru-0.22";
+    const string ModelUrl = "https://alphacephei.com/vosk/models/" + ModelName + ".zip";
+    static Vosk.Model _model;
+    static readonly SemaphoreSlim ModelLock = new(1, 1);
+    Vosk.VoskRecognizer _rec; readonly object _lock = new();
+    public event Action<string> Interim, Final, Error;
+
+    static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RusTutor", "vosk");
+
+    public async Task StartAsync()
+    {
+        await ModelLock.WaitAsync();
+        try
+        {
+            if (_model == null)
+            {
+                var path = Path.Combine(Dir, ModelName);
+                if (!Directory.Exists(path))
+                {
+                    Interim?.Invoke("⬇ Скачиваю офлайн-модель распознавания (~45 МБ, один раз)…");
+                    Directory.CreateDirectory(Dir);
+                    var zip = Path.Combine(Dir, ModelName + ".zip");
+                    using (var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) })
+                    using (var src = await http.GetStreamAsync(ModelUrl))
+                    using (var dst = File.Create(zip)) await src.CopyToAsync(dst);
+                    System.IO.Compression.ZipFile.ExtractToDirectory(zip, Dir, true);
+                    File.Delete(zip);
+                }
+                Vosk.Vosk.SetLogLevel(-1);
+                _model = await Task.Run(() => new Vosk.Model(path));
+            }
+            _rec = new Vosk.VoskRecognizer(_model, 16000f);
+        }
+        finally { ModelLock.Release(); }
+    }
+
+    static string Text(string json, string field)
+    {
+        try { using var d = System.Text.Json.JsonDocument.Parse(json); return d.RootElement.TryGetProperty(field, out var v) ? v.GetString() ?? "" : ""; }
+        catch { return ""; }
+    }
+
+    public void Feed(byte[] buf, int count)
+    {
+        try
+        {
+            lock (_lock)
+            {
+                if (_rec == null) return;
+                if (_rec.AcceptWaveform(buf, count)) { var t = Text(_rec.Result(), "text"); if (!string.IsNullOrWhiteSpace(t)) Final?.Invoke(t); }
+                else Interim?.Invoke(Text(_rec.PartialResult(), "partial"));
+            }
+        }
+        catch (Exception e) { Error?.Invoke("Vosk: " + e.Message); }
+    }
+
+    public Task StopAsync()
+    {
+        lock (_lock) { if (_rec != null) { var t = Text(_rec.FinalResult(), "text"); if (!string.IsNullOrWhiteSpace(t)) Final?.Invoke(t); } }
+        return Task.CompletedTask;
+    }
+    public void Dispose() { lock (_lock) { _rec?.Dispose(); _rec = null; } }
 }

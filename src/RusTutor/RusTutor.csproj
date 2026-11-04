@@ -20,6 +20,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <PackageReference Include="Vosk" Version="0.3.38" />
     <PackageReference Include="Google.Cloud.Speech.V1" Version="3.8.0" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
   </ItemGroup>

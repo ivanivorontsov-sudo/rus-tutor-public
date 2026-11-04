@@ -22,7 +22,7 @@ sealed class VoiceButton : Button
         if (WaveInEvent.DeviceCount == 0) { MessageBox.Show("Микрофон не найден."); return; }
         try
         {
-            _rec = s.VoiceBackend == "cloud" ? new GoogleCloudRecognizer(s) : new GoogleFreeRecognizer(s.VoiceLanguage, s.SilenceMs, s.VadThreshold);
+            _rec = s.VoiceBackend == "cloud" ? new GoogleCloudRecognizer(s) : string.IsNullOrWhiteSpace(GoogleFreeRecognizer.PublicKey) ? new VoskRecognizer() : new GoogleFreeRecognizer(s.VoiceLanguage, s.SilenceMs, s.VadThreshold);
             _rec.Final += t => Dispatcher.Invoke(() => Ui.Insert(_target, t));
             _rec.Interim += t => Dispatcher.Invoke(() => ToolTip = string.IsNullOrEmpty(t) ? "Слушаю…" : t);
             _rec.Error += e => Dispatcher.Invoke(() => App.Main.Status(e));
@@ -31,7 +31,7 @@ sealed class VoiceButton : Button
             var rec = _rec;
             _wave.DataAvailable += (_, e) => rec.Feed(e.Buffer, e.BytesRecorded);
             _wave.StartRecording();
-            _on = true; Background = Brushes.IndianRed; App.Main.Status("🎙 Говорите… (" + (s.VoiceBackend == "cloud" ? "Google Cloud" : "Google, бесплатный режим") + ")");
+            _on = true; Background = Brushes.IndianRed; App.Main.Status("🎙 Говорите… (" + (s.VoiceBackend == "cloud" ? "Google Cloud" : string.IsNullOrWhiteSpace(GoogleFreeRecognizer.PublicKey) ? "офлайн Vosk" : "Google, бесплатный режим") + ")");
         }
         catch (Exception e) { MessageBox.Show("Голосовой ввод: " + e.Message); _rec?.Dispose(); _rec = null; }
     }
